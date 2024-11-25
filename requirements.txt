@@ -1,1 +1,8 @@
-streamlit
+Flask #==2.3.2         # Flask framework for building the REST API
+Flask-HTTPAuth #==4.7.0 # HTTP Basic Authentication for Flask
+Werkzeug #==2.3.4      # WSGI utilities and dependency for Flask
+spyne #==2.13.20       # Library for building SOAP services
+zeep #==5.2.0          # Modern SOAP client for Python, used by Streamlit
+streamlit #==1.25.0    # Framework for creating interactive frontend interfaces
+requests #==2.31.0     # HTTP library for making REST API calls from Streamlit
+lxml #==4.9.3          # XML processing library required by Spyne for SOAP

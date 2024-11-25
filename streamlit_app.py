@@ -1,144 +1,148 @@
-from flask import Flask, request, jsonify
-from flask_httpauth import HTTPBasicAuth
-from werkzeug.security import generate_password_hash, check_password_hash
-from spyne import Application, rpc, ServiceBase, Unicode
-from spyne.protocol.soap import Soap11
-from spyne.server.wsgi import WsgiApplication
-from threading import Thread
-from wsgiref.simple_server import make_server
+import streamlit as st
+import requests
+from zeep import Client
+from zeep.transports import Transport
+from requests.auth import HTTPBasicAuth
+from requests.exceptions import RequestException
 
-# Initialize Flask application
-app = Flask(__name__)
+# Define API URLs
+REST_API_URL = "http://127.0.0.1:5000/api/item"
+SOAP_API_URL = "http://127.0.0.1:8001/soap?wsdl"
 
-# Initialize HTTP Basic Authentication
-auth = HTTPBasicAuth()
-
-# In-memory user store with hashed passwords for demonstration purposes
-users = {
-    "admin": generate_password_hash("secret"),
-    "user": generate_password_hash("password")
-}
-
-# In-memory data store to hold items
-data_store = {}
-
-
-@auth.verify_password
-def verify_password(username, password):
+def main():
     """
-    Verify the provided username and password against the user store.
+    Main function to run the Streamlit app.
     """
-    if username in users and check_password_hash(users.get(username), password):
-        return username
-    return None
+    st.title("Secure API Testing Interface")
+    st.markdown("""
+    This application allows you to interact with the Flask REST and SOAP APIs.
+    Please provide your credentials to authenticate and perform API operations.
+    """)
+
+    # Sidebar for Authentication
+    st.sidebar.header("Authentication")
+    username = st.sidebar.text_input("Username")
+    password = st.sidebar.text_input("Password", type="password")
+
+    # Create an auth object if credentials are provided
+    auth = HTTPBasicAuth(username, password) if username and password else None
+
+    st.header("REST API Operations")
+
+    # GET All Items
+    if st.button("GET All Items"):
+        try:
+            response = requests.get(REST_API_URL, auth=auth)
+            if response.status_code == 200:
+                st.success("Retrieved all items successfully!")
+                st.json(response.json())
+            elif response.status_code == 401:
+                st.error("Unauthorized: Please check your credentials.")
+            else:
+                st.error(f"Error {response.status_code}: {response.text}")
+        except RequestException as e:
+            st.error(f"Request failed: {e}")
+
+    # POST a New Item
+    st.subheader("POST a New Item")
+    post_data = st.text_area("Enter item data (JSON format)", '{"name": "New Item", "description": "Item description"}')
+    if st.button("POST Item"):
+        try:
+            json_data = requests.utils.json.loads(post_data)
+            response = requests.post(REST_API_URL, json=json_data, auth=auth)
+            if response.status_code == 201:
+                st.success("Item created successfully!")
+                st.json(response.json())
+            elif response.status_code == 400:
+                st.error("Bad Request: Invalid JSON data.")
+            elif response.status_code == 401:
+                st.error("Unauthorized: Please check your credentials.")
+            else:
+                st.error(f"Error {response.status_code}: {response.text}")
+        except ValueError:
+            st.error("Invalid JSON format. Please correct the JSON data.")
+        except RequestException as e:
+            st.error(f"Request failed: {e}")
+
+    # GET, PUT, DELETE an Item by ID
+    st.subheader("GET, PUT, DELETE an Item by ID")
+    item_id = st.number_input("Enter Item ID", min_value=1, step=1, format="%d")
+
+    # GET Item
+    if st.button("GET Item"):
+        try:
+            response = requests.get(f"{REST_API_URL}/{item_id}", auth=auth)
+            if response.status_code == 200:
+                st.success(f"Retrieved item with ID {item_id} successfully!")
+                st.json(response.json())
+            elif response.status_code == 404:
+                st.error("Item not found.")
+            elif response.status_code == 401:
+                st.error("Unauthorized: Please check your credentials.")
+            else:
+                st.error(f"Error {response.status_code}: {response.text}")
+        except RequestException as e:
+            st.error(f"Request failed: {e}")
+
+    # PUT (Update) Item
+    new_data = st.text_area("Enter new data for PUT (JSON format)", '{"name": "Updated Item", "description": "Updated description"}')
+    if st.button("PUT Item"):
+        try:
+            json_data = requests.utils.json.loads(new_data)
+            response = requests.put(f"{REST_API_URL}/{item_id}", json=json_data, auth=auth)
+            if response.status_code == 200:
+                st.success(f"Item with ID {item_id} updated successfully!")
+                st.json(response.json())
+            elif response.status_code == 400:
+                st.error("Bad Request: Invalid JSON data.")
+            elif response.status_code == 404:
+                st.error("Item not found.")
+            elif response.status_code == 401:
+                st.error("Unauthorized: Please check your credentials.")
+            else:
+                st.error(f"Error {response.status_code}: {response.text}")
+        except ValueError:
+            st.error("Invalid JSON format. Please correct the JSON data.")
+        except RequestException as e:
+            st.error(f"Request failed: {e}")
+
+    # DELETE Item
+    if st.button("DELETE Item"):
+        try:
+            response = requests.delete(f"{REST_API_URL}/{item_id}", auth=auth)
+            if response.status_code == 200:
+                st.success(f"Item with ID {item_id} deleted successfully!")
+                st.json(response.json())
+            elif response.status_code == 404:
+                st.error("Item not found.")
+            elif response.status_code == 401:
+                st.error("Unauthorized: Please check your credentials.")
+            else:
+                st.error(f"Error {response.status_code}: {response.text}")
+        except RequestException as e:
+            st.error(f"Request failed: {e}")
+
+    st.header("SOAP API Operations")
+
+    # SOAP: Call say_hello
+    if st.button("Call SOAP say_hello"):
+        if not auth:
+            st.error("Please provide username and password in the sidebar.")
+        else:
+            try:
+                # Initialize a session with authentication
+                session = requests.Session()
+                session.auth = (username, password)
+                transport = Transport(session=session)
+                client = Client(SOAP_API_URL, transport=transport)
+
+                # Call the SOAP method
+                response = client.service.say_hello("Streamlit User")
+                st.success("SOAP request successful!")
+                st.write(f"Response from SOAP: {response}")
+            except Exception as e:
+                st.error(f"SOAP Error: {e}")
 
 
-@app.route('/api/item', methods=['GET', 'POST'])
-@auth.login_required
-def handle_items():
-    """
-    Handle operations for all items.
-    """
-    if request.method == 'GET':
-        return jsonify(data_store), 200
-    elif request.method == 'POST':
-        item = request.get_json()
-        if not item:
-            return jsonify({"error": "Invalid JSON data"}), 400
-        item_id = len(data_store) + 1
-        data_store[item_id] = item
-        return jsonify({"id": item_id, "item": item}), 201
-
-
-@app.route('/api/item/<int:item_id>', methods=['GET', 'PUT', 'DELETE'])
-@auth.login_required
-def handle_item(item_id):
-    """
-    Handle operations for a specific item identified by item_id.
-    """
-    if item_id not in data_store:
-        return jsonify({"error": "Item not found"}), 404
-
-    if request.method == 'GET':
-        return jsonify({item_id: data_store[item_id]}), 200
-    elif request.method == 'PUT':
-        updated_item = request.get_json()
-        if not updated_item:
-            return jsonify({"error": "Invalid JSON data"}), 400
-        data_store[item_id] = updated_item
-        return jsonify({"id": item_id, "item": updated_item}), 200
-    elif request.method == 'DELETE':
-        del data_store[item_id]
-        return jsonify({"message": "Item deleted"}), 200
-
-
-class HelloWorldService(ServiceBase):
-    """
-    SOAP Service offering a simple 'say_hello' method.
-    """
-
-    @rpc(Unicode, _returns=Unicode)
-    def say_hello(ctx, name):
-        """
-        Return a greeting message to the provided name.
-        """
-        return f"Hello, {name}! From user authenticated via SOAP."
-
-
-# Initialize SOAP application using Spyne
-soap_app = Application(
-    [HelloWorldService],
-    tns='spyne.examples.hello',
-    in_protocol=Soap11(validator='lxml'),
-    out_protocol=Soap11()
-)
-
-soap_wsgi_app = WsgiApplication(soap_app)
-
-
-def run_soap():
-    """
-    Run the SOAP server on a separate thread with authentication.
-    """
-    # Initialize a separate Flask app for SOAP to incorporate authentication
-    soap_flask_app = Flask('soap_app')
-    soap_auth = HTTPBasicAuth()
-
-    # Reuse the same user store for SOAP authentication
-    @soap_auth.verify_password
-    def verify_soap_password(username, password):
-        """
-        Verify credentials for SOAP service.
-        """
-        if username in users and check_password_hash(users.get(username), password):
-            return username
-        return None
-
-    @soap_flask_app.route('/soap', methods=['POST'])
-    @soap_auth.login_required
-    def soap_endpoint():
-        """
-        Handle SOAP requests with authentication.
-        """
-        return soap_wsgi_app(request.environ, start_response)
-
-    def start_response(status, headers):
-        """
-        Minimal start_response function required by WSGI.
-        """
-        pass
-
-    # Start the SOAP server
-    server = make_server('0.0.0.0', 8001, soap_flask_app)
-    print("SOAP server with authentication running on http://0.0.0.0:8001/soap")
-    server.serve_forever()
-
-
-# Start the SOAP server in a separate daemon thread
-soap_thread = Thread(target=run_soap)
-soap_thread.daemon = True
-soap_thread.start()
-
-if __name__ == '__main__':
-    # Start the Flask REST API server
-    app.run(port=5000, debug=True)
+if __name__ == "__main__":
+    main()
